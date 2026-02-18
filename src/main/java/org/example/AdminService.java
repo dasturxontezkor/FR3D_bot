@@ -19,7 +19,6 @@ import java.util.*;
 public class AdminService {
     private final DatabaseService db;
     private final String ADMIN_PASSWORD = "secret123";
-    private final Long ADMIN_ID = 679730369L;
 
     // Admin holatlarini saqlaymiz
     private final Map<Long, Boolean> awaitingBroadcast = new HashMap<>();
@@ -50,10 +49,14 @@ public class AdminService {
                 bot.executeSafely(new SendMessage(chatId.toString(), "🔑 Parolni kiriting:"));
                 return true;
             }
-            if (chatId.equals(ADMIN_ID) && text.equals("➕ Test qo'shish")) {
-                awaitingTopicName.put(chatId, true);
-                bot.executeSafely(new SendMessage(chatId.toString(), "✏️ Mavzu nomini kiriting:"));
-                return true;
+            Long ADMIN_ID = 679730369L;
+            if (text.equals("➕ Add Test")) {
+                if (chatId.equals(ADMIN_ID)) {
+                    awaitingTopicName.put(chatId, true);
+                    bot.executeSafely(new SendMessage(chatId.toString(), "✏️ Mavzu nomini kiriting:"));
+                    return true;
+                }
+
             }
 
             if (awaitingTopicName.getOrDefault(chatId, false)) {
