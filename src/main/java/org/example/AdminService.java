@@ -196,7 +196,6 @@ public class AdminService {
     }
 
 
-
     // 🔘 Inline tugmalar (matn / rasm tanlash)
     private InlineKeyboardMarkup getBroadcastTypeButtons() {
         InlineKeyboardButton textBtn = new InlineKeyboardButton("💬 Faqat matn");

@@ -109,9 +109,7 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
                 "🔋 Please subscribe to our channels and group to start the test.";
 
         Map<String, String> channelNamesMap = new HashMap<>();
-        channelNamesMap.put("@argos_testlarim", "ARGOS TEST CHANNEL");
-        channelNamesMap.put("@gibridtest", "HYBRID TEST CHANNEL");
-        channelNamesMap.put("@gibridtesthamshira", "HYBRID NURSE TEST CHANNEL");
+        channelNamesMap.put("iamfredo7", "CHANNEL");
 
         List<List<InlineKeyboardButton>> buttons = new ArrayList<>();
         for (String ch : requiredChannels) {
@@ -199,7 +197,7 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
     private void sendWebApp(Long chatId) throws Exception {
         SendMessage msg = new SendMessage(chatId.toString(), "🌐 Press the button below to start the test:");
         InlineKeyboardButton webButton = new InlineKeyboardButton("🚀 Start Test");
-        webButton.setWebApp(new WebAppInfo("https://temurdev-hub.github.io/argosTest/"));
+        webButton.setWebApp(new WebAppInfo("https://fred-website-ashy.vercel.app/"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup(List.of(List.of(webButton)));
         msg.setReplyMarkup(markup);
