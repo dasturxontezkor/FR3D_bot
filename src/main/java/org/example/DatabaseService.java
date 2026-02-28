@@ -62,82 +62,193 @@ public class DatabaseService {
     public void saveTestFromWord(AdvancedTelegramBot bot, String fileId, String topicName) throws Exception {
 
         File file = bot.downloadFile(bot.execute(new GetFile(fileId)));
-        XWPFDocument doc = new XWPFDocument(new FileInputStream(file));
 
-        List<XWPFParagraph> paragraphs = doc.getParagraphs();
-        List<String> cleanedLines = new ArrayList<>();
+        // 1) Word'dan satrlarni o'qib olamiz (docx/doc)
+        List<String> lines = readWordLines(file);
 
-        // Bo'sh bo'lmagan paragraf matnlarini yig'ish (trim qilib)
-        for (XWPFParagraph p : paragraphs) {
-            String text = p.getText().trim();
-            if (!text.isBlank()) {
-                cleanedLines.add(text);
-            }
+        // 2) Satrlardan bo'shlarni olib tashlab, trim qilamiz
+        List<String> cleaned = new ArrayList<>();
+        for (String l : lines) {
+            if (l == null) continue;
+            String t = l.trim();
+            if (!t.isBlank()) cleaned.add(t);
         }
 
+        if (cleaned.isEmpty()) {
+            file.delete();
+            throw new RuntimeException("❌ Word fayl bo‘sh yoki o‘qib bo‘lmadi.");
+        }
+
+        // 3) Topic saqlash
         int topicId = saveTopic(topicName);
 
         int i = 0;
-        while (i < cleanedLines.size()) {
-            // Savol matnini yig'ish: "Savol:" bilan boshlanadigan qator(lar)
-            if (!cleanedLines.get(i).startsWith("Savol:")) {
-                throw new RuntimeException("❌ Savol 'Savol:' bilan boshlanmagan: " + cleanedLines.get(i));
+
+        while (i < cleaned.size()) {
+
+            // --- 4) Savolni yig'amiz (Savol: bo'lishi shart emas) ---
+            StringBuilder q = new StringBuilder();
+
+            String first = cleaned.get(i);
+
+            // Savol raqamini olib tashlash: "1)", "1.", "1-" ...
+            first = first.replaceAll("^\\s*\\d+\\s*[\\)\\.\\-]\\s*", "");
+
+            // "Savol:" bo'lsa olib tashlaymiz
+            if (first.startsWith("Savol:")) {
+                first = first.substring("Savol:".length()).trim();
             }
 
-            StringBuilder questionBuilder = new StringBuilder();
-            while (i < cleanedLines.size()) {
-                String line = cleanedLines.get(i);
+            q.append(first);
+            i++;
 
-                // Agar line raqam bilan boshlansa (1. 2. 3. 4.) — variantlar boshlanmoqda
-                if (line.matches("^\\s*[1-4]\\s*\\..*")) {
-                    break;
-                }
+            // Savol bir nechta qatordan iborat bo'lishi mumkin.
+            // Variantlar boshlanguncha (A:/B:/C:/D:) qo'shib boramiz
+            while (i < cleaned.size() && !isOptionLine(cleaned.get(i))) {
+                String extra = cleaned.get(i).trim();
 
-                // "Savol:" ni faqat birinchi marta olib tashlaymiz
-                if (questionBuilder.length() == 0) {
-                    questionBuilder.append(line.replace("Savol:", "").trim());
-                } else {
-                    questionBuilder.append(" ").append(line.trim());
+                // Savol raqami yoki Savol: yana uchrasa ham olib tashlaymiz
+                extra = extra.replaceAll("^\\s*\\d+\\s*[\\)\\.\\-]\\s*", "");
+                if (extra.startsWith("Savol:")) extra = extra.substring("Savol:".length()).trim();
+
+                if (!extra.isBlank()) {
+                    q.append(" ").append(extra);
                 }
                 i++;
             }
 
-            String questionText = questionBuilder.toString().trim();
+            String questionText = q.toString().trim();
             if (questionText.isEmpty()) {
-                throw new RuntimeException("❌ Savol matni bo'sh");
+                throw new RuntimeException("❌ Savol matni bo‘sh topildi.");
+            }
+
+            // --- 5) Endi variantlar bo‘lishi shart ---
+            if (i >= cleaned.size() || !isOptionLine(cleaned.get(i))) {
+                throw new RuntimeException("❌ Variantlar topilmadi (A/B/C/D). Savol: " + questionText);
             }
 
             int questionId = saveQuestion(topicId, questionText);
 
-            // Endi variantlarni o'qish (kamida 1 ta bo'lishi kerak)
-            int optionsCount = 0;
-            while (i < cleanedLines.size() && optionsCount < 4) {
-                String opt = cleanedLines.get(i);
+            // Variantlar: A, B, C, D
+            boolean gotA = false, gotB = false, gotC = false, gotD = false;
+            int correctCount = 0;
 
-                // Variant raqam bilan boshlanishi kerak (1., 2., 3., 4.)
-                if (!opt.matches("^\\s*[1-4]\\s*\\..*")) {
-                    break; // variantlar tugadi
-                }
+            // 6) A/B/C/D variantlarini o'qib olamiz
+            while (i < cleaned.size() && isOptionLine(cleaned.get(i))) {
+                String optLine = cleaned.get(i).trim();
 
-                boolean correct = opt.contains("*");
-                String cleanText = opt
+                // option letter
+                String letter = optLine.substring(0, 1).toUpperCase(); // A/B/C/D
+
+                boolean correct = optLine.contains("*");
+                if (correct) correctCount++;
+
+                // Matnni ajratib olamiz
+                String optText = optLine
                         .replace("*", "")
-                        .replaceAll("^\\s*[1-4]\\s*\\.", "")
+                        .replaceFirst("^(A|B|C|D)\\s*:\\s*", "")
                         .trim();
 
-                saveOption(questionId, cleanText, correct);
-                optionsCount++;
+                if (optText.isEmpty()) {
+                    throw new RuntimeException("❌ Variant matni bo‘sh. Savol: " + questionText + " | Line: " + optLine);
+                }
+
+                saveOption(questionId, optText, correct);
+
+                if (letter.equals("A")) gotA = true;
+                if (letter.equals("B")) gotB = true;
+                if (letter.equals("C")) gotC = true;
+                if (letter.equals("D")) gotD = true;
+
                 i++;
+
+                // Agar A,B,C,D hammasi kiritilgan bo'lsa (ko'pincha 4 ta bo'ladi) to'xtatamiz
+                if (gotA && gotB && gotC && gotD) break;
             }
 
-            // Agar 4 ta variant yetarli bo'lmasa, ogohlantirish beramiz
-            if (optionsCount < 4) {
-                System.out.println("⚠️ Ogohlantirish: Savol uchun variantlar 4 taga yetmadi, faqat " + optionsCount + " ta saqlandi");
+            // 7) Tekshiruvlar (ixtiyoriy, lekin foydali)
+            if (!(gotA && gotB && gotC && gotD)) {
+                System.out.println("⚠️ Ogohlantirish: 4 ta variant to‘liq emas. Savol: " + questionText);
             }
+            if (correctCount == 0) {
+                System.out.println("⚠️ Ogohlantirish: To‘g‘ri javob (*) belgilanmagan. Savol: " + questionText);
+            } else if (correctCount > 1) {
+                System.out.println("⚠️ Ogohlantirish: Bir nechta to‘g‘ri javob (*) belgilangan. Savol: " + questionText);
+            }
+
+            // 8) keyingi savolga o'tadi (while davom etadi)
         }
 
-        // Faylni o'chirish (ixtiyoriy)
         file.delete();
+    }
+
+
+    private List<String> readWordLines(File file) throws Exception {
+
+        if (file == null || !file.exists()) {
+            throw new RuntimeException("❌ Fayl topilmadi.");
+        }
+
+        List<String> rawLines = new ArrayList<>();
+
+        // ✅ Faqat DOCX: extension tekshirmaymiz, o‘qib ko‘ramiz
+        try (FileInputStream fis = new FileInputStream(file);
+             XWPFDocument document = new XWPFDocument(fis)) {
+
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                String text = paragraph.getText();
+                if (text != null) {
+                    text = cleanText(text);
+                    if (!text.isBlank()) rawLines.add(text);
+                }
+            }
+
+        } catch (Exception e) {
+            // agar docx bo‘lmasa shu yerda yiqiladi
+            throw new RuntimeException("❌ Fayl .docx (Word) emas yoki buzilgan. Iltimos haqiqiy .docx yuboring.");
+        }
+
+        // A: B: C: D: bir qatorda yopishib kelsa ajratamiz
+        List<String> normalized = new ArrayList<>();
+        for (String line : rawLines) {
+            normalized.addAll(splitInlineOptions(line));
+        }
+
+        return normalized;
+    }
+
+    private String cleanText(String text) {
+        if (text == null) return "";
+        text = text.replace("\r", " ");
+        text = text.replace("\n", " ");
+        text = text.replaceAll("\\s+", " ");
+        return text.trim();
+    }
+
+    private List<String> splitInlineOptions(String line) {
+        List<String> result = new ArrayList<>();
+        if (line == null || line.isBlank()) return result;
+
+        // A: bor bo'lmasa - o'zini qaytar
+        if (!line.matches(".*\\b[A-D]\\s*:\\s*.*")) {
+            result.add(line.trim());
+            return result;
+        }
+
+        // A:/B:/C:/D: bo'yicha bo'lib tashlaymiz
+        String[] parts = line.split("(?=\\b[A-D]\\s*:)");
+
+        for (String part : parts) {
+            String t = part.trim();
+            if (!t.isBlank()) result.add(t);
+        }
+        return result;
+    }
+
+    // ✅ Variant qatori ekanligini aniqlash (A:/B:/C:/D:)
+    private boolean isOptionLine(String line) {
+        if (line == null) return false;
+        return line.trim().matches("^(A|B|C|D)\\s*:\\s*.*");
     }
 
     private Connection getConnection() throws SQLException {

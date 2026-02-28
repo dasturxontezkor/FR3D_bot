@@ -53,7 +53,14 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
                 db.saveUser(chatId, username, firstName);
 
                 if (text.equals("/start")) {
-                    sendStartWithInlineChannels(chatId);
+                    Long userId = update.getMessage().getFrom().getId();
+
+                    List<String> unsubscribed = getUnsubscribedChannels(userId);
+                    if (unsubscribed.isEmpty()) {
+                        sendAccessGranted(chatId);
+                    } else {
+                        sendStartWithInlineChannels(chatId);
+                    }
                 } else if (text.equals("\uD83E\uDDE0 Start Test")) {
                     sendWebApp(chatId);
                 }
@@ -61,11 +68,14 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
 
             if (update.hasCallbackQuery()) {
                 String data = update.getCallbackQuery().getData();
+
                 Long chatId = update.getCallbackQuery().getMessage().getChatId();
                 Integer messageId = update.getCallbackQuery().getMessage().getMessageId();
 
+                Long userId = update.getCallbackQuery().getFrom().getId(); // ✅ mana shuni qo‘shing
+
                 if (data.equals("check_subs")) {
-                    List<String> unsubscribed = getUnsubscribedChannels(chatId);
+                    List<String> unsubscribed = getUnsubscribedChannels(userId); // ✅ userId
                     if (unsubscribed.isEmpty()) {
                         sendAccessGranted(chatId);
                     } else {
@@ -78,15 +88,15 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private List<String> getUnsubscribedChannels(Long chatId) {
+    private List<String> getUnsubscribedChannels(Long userId) {
         List<String> notJoined = new ArrayList<>();
         for (String channel : requiredChannels) {
             try {
-                GetChatMember chatMember = new GetChatMember(channel, chatId);
+                GetChatMember chatMember = new GetChatMember(channel, userId);
                 ChatMember member = execute(chatMember);
                 String status = member.getStatus();
 
-                if (status.equals("left") || status.equals("kicked")) {
+                if ("left".equals(status) || "kicked".equals(status)) {
                     notJoined.add(channel);
                 }
             } catch (Exception e) {
@@ -95,6 +105,7 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
         }
         return notJoined;
     }
+
 
     private void sendStartWithInlineChannels(Long chatId) throws Exception {
         String text = "💬 Hello! Welcome to our bot.\n" +

@@ -1,7 +1,5 @@
 package org.example;
 
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
@@ -11,19 +9,29 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.sql.ResultSet;
 import java.util.*;
 
 public class AdminService {
-    private final DatabaseService db;
-    private final String ADMIN_PASSWORD = "secret123";
 
-    // Admin holatlarini saqlaymiz
-    private final Map<Long, Boolean> awaitingBroadcast = new HashMap<>();
+    private final DatabaseService db;
+
+    // ✅ ADMIN sozlamalar
+    private static final String ADMIN_PASSWORD = "secret123";
+    private static final Long ADMIN_ID = 679730369L; // <-- o'zingizning USER ID
+
+    // ✅ Tugmalar (showAdminMenu bilan 100% bir xil bo‘lsin!)
+    private static final String BTN_SEND_MESSAGE = "📢 Send Message";
+    private static final String BTN_ADD_TEST = "➕ Add Test";
+
+    // ✅ Callback data
+    private static final String CB_BROADCAST_TEXT = "broadcast_text";
+    private static final String CB_BROADCAST_PHOTO = "broadcast_photo";
+
+    // ✅ State'lar
+    private final Map<Long, Boolean> awaitingBroadcastText = new HashMap<>();
     private final Map<Long, Boolean> awaitingPhoto = new HashMap<>();
-    private final Map<Long, String> photoFileId = new HashMap<>();
+    private final Map<Long, String> pendingPhotoFileId = new HashMap<>();
 
     private final Map<Long, Boolean> awaitingTopicName = new HashMap<>();
     private final Map<Long, Boolean> awaitingWordFile = new HashMap<>();
@@ -36,42 +44,96 @@ public class AdminService {
     public boolean handleAdminCommands(Update update, AdvancedTelegramBot bot) {
         try {
             if (update == null) return false;
+
             Long chatId = getChatId(update);
             if (chatId == null) return false;
 
-            String text = update.hasMessage() && update.getMessage().hasText()
-                    ? update.getMessage().getText()
-                    : "";
+            Long userId = getUserId(update); // ✅ admin tekshiruvi uchun
+            String text = getText(update);
 
-            // 🔐 ADMIN rejimga kirish
-            if (text.equals("/entertoadmin")) {
+            // ✅ /cancel - har qanday jarayonni bekor qilish
+            if ("/cancel".equalsIgnoreCase(text)) {
+                clearAllStates(chatId, bot);
+                bot.executeSafely(new SendMessage(chatId.toString(), "✅ Bekor qilindi."));
+                if (isAdmin(userId)) bot.showAdminMenu(chatId);
+                return true;
+            }
+
+            // ✅ 1) Admin rejimga kirish
+            if ("/entertoadmin".equals(text)) {
                 bot.awaitingAdminPassword.put(chatId, true);
                 bot.executeSafely(new SendMessage(chatId.toString(), "🔑 Parolni kiriting:"));
                 return true;
             }
-            Long ADMIN_ID = 679730369L;
-            if (text.equals("➕ Add Test")) {
-                if (chatId.equals(ADMIN_ID)) {
-                    awaitingTopicName.put(chatId, true);
-                    bot.executeSafely(new SendMessage(chatId.toString(), "✏️ Mavzu nomini kiriting:"));
+
+            // ✅ 2) Parol kiritilayotgan bo'lsa
+            if (bot.awaitingAdminPassword.getOrDefault(chatId, false)) {
+                if (ADMIN_PASSWORD.equals(text)) {
+                    bot.awaitingAdminPassword.put(chatId, false);
+
+                    // ✅ Admin faqat ADMIN_ID bo'lsa menyu chiqadi
+                    if (isAdmin(userId)) {
+                        bot.executeSafely(new SendMessage(chatId.toString(),
+                                "✅ Xush kelibsiz, admin!\n\n" +
+                                        "Bekor qilish: /cancel"));
+                        bot.showAdminMenu(chatId);
+                    } else {
+                        bot.executeSafely(new SendMessage(chatId.toString(),
+                                "❌ Siz admin emassiz (ID mos emas)."));
+                    }
+                } else {
+                    bot.executeSafely(new SendMessage(chatId.toString(), "❌ Noto‘g‘ri parol!"));
+                }
+                return true;
+            }
+
+            // 🔒 Admin bo‘lmasa, qolgan admin funksiyalar ishlamasin
+            if (!isAdmin(userId)) {
+                return false;
+            }
+
+            // ✅ 3) Add Test bosildi
+            if (BTN_ADD_TEST.equals(text)) {
+                clearAllStates(chatId, bot);
+                awaitingTopicName.put(chatId, true);
+                bot.executeSafely(new SendMessage(chatId.toString(),
+                        "✏️ Mavzu nomini kiriting:\n\nBekor qilish: /cancel"));
+                return true;
+            }
+
+            // ✅ 4) Topic name kutilayotgan bo'lsa
+            if (awaitingTopicName.getOrDefault(chatId, false)) {
+                if (text == null || text.isBlank()) {
+                    bot.executeSafely(new SendMessage(chatId.toString(),
+                            "❗️Mavzu nomi bo‘sh bo‘lmasin. Qaytadan kiriting:\nBekor qilish: /cancel"));
                     return true;
                 }
 
-            }
-
-            if (awaitingTopicName.getOrDefault(chatId, false)) {
-                tempTopicName.put(chatId, text);
+                tempTopicName.put(chatId, text.trim());
                 awaitingTopicName.put(chatId, false);
                 awaitingWordFile.put(chatId, true);
 
                 bot.executeSafely(new SendMessage(chatId.toString(),
                         "📄 Word (.docx) faylni yuboring:\n\n" +
-                                "Format:\nSavol:\nA:\nB:\nC:\nD: *"));
+                                "Format:\n" +
+                                "Savol: (yoki Savolsiz ham bo‘ladi)\n" +
+                                "A:\nB:\nC:\nD: *\n\n" +
+                                "⚠️ To‘g‘ri javob oxiriga * qo‘ying\n" +
+                                "Bekor qilish: /cancel"));
                 return true;
             }
+
+            // ✅ 5) Word fayl kutilayotgan bo'lsa
             if (awaitingWordFile.getOrDefault(chatId, false)
                     && update.hasMessage()
                     && update.getMessage().hasDocument()) {
+
+                String fileName = update.getMessage().getDocument().getFileName();
+                if (fileName == null || !fileName.toLowerCase().endsWith(".docx")) {
+                    bot.executeSafely(new SendMessage(chatId.toString(),
+                            "❌ Faqat .docx fayl yuboring.\nBekor qilish: /cancel"));
+                    return true;
+                }
 
                 String fileId = update.getMessage().getDocument().getFileId();
                 String topicName = tempTopicName.get(chatId);
@@ -81,6 +143,7 @@ public class AdminService {
                 bot.executeSafely(new SendMessage(chatId.toString(),
                         "✅ Test muvaffaqiyatli qo‘shildi!"));
 
+                // tozalash
                 awaitingWordFile.remove(chatId);
                 tempTopicName.remove(chatId);
 
@@ -88,90 +151,90 @@ public class AdminService {
                 return true;
             }
 
-
-            // 🔑 Parol tekshirish
-            if (bot.awaitingAdminPassword.getOrDefault(chatId, false)) {
-                if (text.equals(ADMIN_PASSWORD)) {
-                    bot.awaitingAdminPassword.put(chatId, false);
-                    bot.executeSafely(new SendMessage(chatId.toString(), "✅ Xush kelibsiz, admin!"));
-                    bot.showAdminMenu(chatId);
-                } else {
-                    bot.executeSafely(new SendMessage(chatId.toString(), "❌ Noto‘g‘ri parol!"));
-                }
-                return true;
-            }
-
-            // 📢 Admin menyusi orqali xabar yuborish
-            if (chatId.equals(ADMIN_ID) && text.equals("📢 Habar yuborish")) {
-                SendMessage msg = new SendMessage(chatId.toString(), "📝 Yuboriladigan xabar turini tanlang:");
+            // ✅ 6) Broadcast menyu (Send Message)
+            if (BTN_SEND_MESSAGE.equals(text)) {
+                clearBroadcastStates(chatId);
+                SendMessage msg = new SendMessage(chatId.toString(),
+                        "📝 Yuboriladigan xabar turini tanlang:\n\nBekor qilish: /cancel");
                 msg.setReplyMarkup(getBroadcastTypeButtons());
                 bot.executeSafely(msg);
                 return true;
             }
 
-            // 🖼 Inline tugmalardan callback kelganda
+            // ✅ 7) Callback (matn/rasm tanlash)
             if (update.hasCallbackQuery()) {
                 String data = update.getCallbackQuery().getData();
-                if (data.equals("text")) {
-                    awaitingBroadcast.put(chatId, true);
-                    bot.executeSafely(new SendMessage(chatId.toString(), "✏️ Matnni kiriting:"));
+
+                if (CB_BROADCAST_TEXT.equals(data)) {
+                    clearBroadcastStates(chatId);
+                    awaitingBroadcastText.put(chatId, true);
+                    bot.executeSafely(new SendMessage(chatId.toString(),
+                            "✏️ Matnni kiriting:\n\nBekor qilish: /cancel"));
                     return true;
-                } else if (data.equals("photo")) {
+                }
+
+                if (CB_BROADCAST_PHOTO.equals(data)) {
+                    clearBroadcastStates(chatId);
                     awaitingPhoto.put(chatId, true);
-                    bot.executeSafely(new SendMessage(chatId.toString(), "🖼 Rasmni yuboring:"));
+                    bot.executeSafely(new SendMessage(chatId.toString(),
+                            "🖼 Rasmni yuboring:\n\nBekor qilish: /cancel"));
                     return true;
                 }
             }
 
-            // 🖼 Agar admin rasm yuborgan bo‘lsa
+            // ✅ 8) Photo kutilayotgan bo'lsa (admin rasm yubordi)
             if (awaitingPhoto.getOrDefault(chatId, false)
                     && update.hasMessage()
                     && update.getMessage().hasPhoto()) {
 
                 List<PhotoSize> photos = update.getMessage().getPhoto();
                 if (photos != null && !photos.isEmpty()) {
-                    String fileId = photos.get(photos.size() - 1).getFileId();
-                    photoFileId.put(chatId, fileId);
+                    String photoId = photos.get(photos.size() - 1).getFileId(); // eng kattasi
+                    pendingPhotoFileId.put(chatId, photoId);
+
                     awaitingPhoto.put(chatId, false);
-                    awaitingBroadcast.put(chatId, true);
-                    bot.executeSafely(new SendMessage(chatId.toString(), "📝 Endi caption (yozuv)ni kiriting:"));
+                    awaitingBroadcastText.put(chatId, true);
+
+                    bot.executeSafely(new SendMessage(chatId.toString(),
+                            "📝 Endi caption (yozuv)ni kiriting:\n\nBekor qilish: /cancel"));
                 }
                 return true;
             }
 
-            // 💬 Agar admin matn yuborayotgan bo‘lsa (rasm bilan yoki rasmsiz)
-            if (awaitingBroadcast.getOrDefault(chatId, false)
+            // ✅ 9) Broadcast matn kutilayotgan bo'lsa (rasm bilan / rasmsiz)
+            if (awaitingBroadcastText.getOrDefault(chatId, false)
                     && text != null
-                    && !text.isEmpty()
+                    && !text.isBlank()
                     && !text.startsWith("/")) {
 
-                String photoId = photoFileId.get(chatId);
+                String photoId = pendingPhotoFileId.get(chatId);
+
                 ResultSet rs = db.getAllUsers();
                 int sentCount = 0;
 
                 while (rs != null && rs.next()) {
-                    Long userId = rs.getLong("chat_id");
+                    Long userChatId = rs.getLong("chat_id");
 
                     try {
                         if (photoId != null) {
                             SendPhoto photo = new SendPhoto();
-                            photo.setChatId(userId.toString());
+                            photo.setChatId(userChatId.toString());
                             photo.setPhoto(new InputFile(photoId));
                             photo.setCaption("📢 Admin xabari:\n\n" + text);
                             bot.execute(photo);
                         } else {
-                            SendMessage msg = new SendMessage(userId.toString(), "📢 Admin xabari:\n\n" + text);
+                            SendMessage msg = new SendMessage(userChatId.toString(),
+                                    "📢 Admin xabari:\n\n" + text);
                             bot.execute(msg);
                         }
                         sentCount++;
 
                     } catch (TelegramApiRequestException e) {
-                        // ❗ Foydalanuvchi bloklagan yoki botga yozishni taqiqlagan holat
-                        if (e.getMessage().contains("403") ||
-                                e.getMessage().toLowerCase().contains("bot was blocked by the user")) {
-                            System.out.println("⚠️ Foydalanuvchi botni bloklagan: " + userId);
+                        String m = (e.getMessage() == null) ? "" : e.getMessage().toLowerCase();
+                        if (m.contains("403") || m.contains("bot was blocked by the user") || m.contains("forbidden")) {
+                            System.out.println("⚠️ User botni bloklagan: " + userChatId);
                         } else {
-                            System.out.println("⚠️ Yuborishda xatolik (userId=" + userId + "): " + e.getMessage());
+                            System.out.println("⚠️ Yuborishda xatolik (user=" + userChatId + "): " + e.getMessage());
                         }
                     } catch (Exception e) {
                         System.out.println("❌ Xabar yuborishda xatolik: " + e.getMessage());
@@ -181,11 +244,7 @@ public class AdminService {
                 bot.executeSafely(new SendMessage(chatId.toString(),
                         "✅ Xabar " + sentCount + " ta foydalanuvchiga yuborildi."));
 
-                // 🔒 Holatlarni tozalaymiz
-                awaitingBroadcast.put(chatId, false);
-                awaitingPhoto.put(chatId, false);
-                photoFileId.remove(chatId);
-
+                clearBroadcastStates(chatId);
                 bot.showAdminMenu(chatId);
                 return true;
             }
@@ -198,14 +257,13 @@ public class AdminService {
         }
     }
 
-
-    // 🔘 Inline tugmalar (matn / rasm tanlash)
+    // ✅ Inline tugmalar (matn / rasm)
     private InlineKeyboardMarkup getBroadcastTypeButtons() {
         InlineKeyboardButton textBtn = new InlineKeyboardButton("💬 Faqat matn");
-        textBtn.setCallbackData("text");
+        textBtn.setCallbackData(CB_BROADCAST_TEXT);
 
         InlineKeyboardButton photoBtn = new InlineKeyboardButton("🖼 Rasm bilan");
-        photoBtn.setCallbackData("photo");
+        photoBtn.setCallbackData(CB_BROADCAST_PHOTO);
 
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(Arrays.asList(textBtn, photoBtn));
@@ -215,10 +273,47 @@ public class AdminService {
         return markup;
     }
 
-    // 🆔 Chat ID olish
+    // ✅ Broadcast state'larni tozalash
+    private void clearBroadcastStates(Long chatId) {
+        awaitingBroadcastText.remove(chatId);
+        awaitingPhoto.remove(chatId);
+        pendingPhotoFileId.remove(chatId);
+    }
+
+    // ✅ Hammasini tozalash
+    private void clearAllStates(Long chatId, AdvancedTelegramBot bot) {
+        clearBroadcastStates(chatId);
+        awaitingTopicName.remove(chatId);
+        awaitingWordFile.remove(chatId);
+        tempTopicName.remove(chatId);
+        bot.awaitingAdminPassword.remove(chatId);
+    }
+
+    // ✅ Admin tekshiruvi: USER ID bo‘yicha
+    private boolean isAdmin(Long userId) {
+        return userId != null && userId.equals(ADMIN_ID);
+    }
+
+    // ✅ ChatId olish
     private Long getChatId(Update update) {
         if (update.hasMessage()) return update.getMessage().getChatId();
         if (update.hasCallbackQuery()) return update.getCallbackQuery().getMessage().getChatId();
         return null;
+    }
+
+    // ✅ UserId olish
+    private Long getUserId(Update update) {
+        if (update.hasMessage() && update.getMessage().getFrom() != null) {
+            return update.getMessage().getFrom().getId();
+        }
+        if (update.hasCallbackQuery() && update.getCallbackQuery().getFrom() != null) {
+            return update.getCallbackQuery().getFrom().getId();
+        }
+        return null;
+    }
+
+    private String getText(Update update) {
+        if (update.hasMessage() && update.getMessage().hasText()) return update.getMessage().getText();
+        return "";
     }
 }
