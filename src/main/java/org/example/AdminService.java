@@ -18,7 +18,7 @@ public class AdminService {
 
     // ✅ ADMIN sozlamalar
     private static final String ADMIN_PASSWORD = "secret123";
-    private static final Long ADMIN_ID = 7935500609L; // <-- sizning USER ID
+    private static final Long ADMIN_ID = 679730369L; // <-- sizning USER ID
 
     // ✅ Tugmalar (showAdminMenu bilan 100% bir xil bo‘lsin!)
     private static final String BTN_SEND_MESSAGE = "📢 Send Message";
