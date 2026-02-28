@@ -231,15 +231,26 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    public void sendLatestResults(Long chatId, int limit) {
+        try {
+            String report = db.getLatestResultsReport(limit);
+            executeSafely(new SendMessage(chatId.toString(), report));
+        } catch (Exception e) {
+            e.printStackTrace();
+            executeSafely(new SendMessage(chatId.toString(), "❌ Natijalarni yuborishda xatolik: " + e.getMessage()));
+        }
+    }
+
     public void showAdminMenu(Long chatId) {
         KeyboardButton sendMsgBtn = new KeyboardButton("📢 Send Message");
-        KeyboardRow row = new KeyboardRow();
-        row.add(sendMsgBtn);
-        KeyboardButton addButton = new KeyboardButton("➕ Add Test");
-        KeyboardRow row2 = new KeyboardRow();
-        row2.add(addButton);
+        KeyboardButton addButton   = new KeyboardButton("➕ Add Test");
+        KeyboardButton resultsBtn  = new KeyboardButton("📊 Show Results");
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row,row2));
+        KeyboardRow row1 = new KeyboardRow(); row1.add(sendMsgBtn);
+        KeyboardRow row2 = new KeyboardRow(); row2.add(addButton);
+        KeyboardRow row3 = new KeyboardRow(); row3.add(resultsBtn);
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
         markup.setResizeKeyboard(true);
 
         SendMessage msg = new SendMessage(chatId.toString(), "🔐 Admin Menu:");

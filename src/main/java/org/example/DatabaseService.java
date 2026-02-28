@@ -58,6 +58,66 @@ public class DatabaseService {
     }
 
 
+    public String getLatestResultsReport(int limit) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📊 Latest Results (top ").append(limit).append(")\n\n");
+
+        try (Connection conn = getConnection()) {
+
+            PreparedStatement ps = conn.prepareStatement("""
+            SELECT r.topic_name, r.correct_count, r.total_count, r.percent, r.created_at,
+                   u.firstname, u.username
+            FROM results r
+            LEFT JOIN users u ON u.chat_id = r.user_chat_id
+            ORDER BY r.created_at DESC
+            LIMIT ?
+        """);
+            ps.setInt(1, limit);
+
+            ResultSet rs = ps.executeQuery();
+
+            int idx = 1;
+            boolean any = false;
+
+            while (rs.next()) {
+                any = true;
+
+                String firstName = rs.getString("firstname");
+                String username = rs.getString("username");
+                String who = (firstName != null && !firstName.isBlank())
+                        ? firstName
+                        : (username != null && !username.isBlank() ? "@" + username : "Unknown");
+
+                String topic = rs.getString("topic_name");
+                int correct = rs.getInt("correct_count");
+                int total = rs.getInt("total_count");
+                int percent = rs.getInt("percent");
+                Timestamp time = rs.getTimestamp("created_at");
+
+                sb.append(idx++).append(") ")
+                        .append("👤 ").append(who).append("\n")
+                        .append("📘 ").append(topic == null ? "-" : topic).append("\n")
+                        .append("✅ ").append(correct).append("/").append(total)
+                        .append(" (").append(percent).append("%)\n")
+                        .append("🕒 ").append(time).append("\n\n");
+            }
+
+            if (!any) {
+                return "📊 Hozircha natijalar yo‘q.";
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "❌ Natijalarni o‘qishda xatolik: " + e.getMessage();
+        }
+
+        // Telegram limit
+        String out = sb.toString();
+        if (out.length() > 3900) out = out.substring(0, 3900) + "\n\n...";
+        return out;
+    }
+
+
 
     public void saveTestFromWord(AdvancedTelegramBot bot, String fileId, String topicName) throws Exception {
 
