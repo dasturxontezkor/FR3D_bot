@@ -208,7 +208,7 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
     private void sendWebApp(Long chatId) throws Exception {
         SendMessage msg = new SendMessage(chatId.toString(), "🌐 Press the button below to start the test:");
         InlineKeyboardButton webButton = new InlineKeyboardButton("🚀 Start Test");
-        webButton.setWebApp(new WebAppInfo("https://fr-3-d-front.vercel.app/"));
+        webButton.setWebApp(new WebAppInfo("https://fred-front-3g92aydzh-dasturxontezkors-projects.vercel.app/"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup(List.of(List.of(webButton)));
         msg.setReplyMarkup(markup);
