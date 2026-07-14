@@ -12,9 +12,9 @@ import java.util.List;
 
 public class DatabaseService {
 
-    private final String url = "jdbc:postgresql://centerbeam.proxy.rlwy.net:52009/railway";
+    private final String url = "jdbc:postgresql://tokaido.proxy.rlwy.net:36116/railway";
     private final String user = "postgres";
-    private final String password = "mbWGYQiPiLIfkzkmxCndaliSqxMedJsa";
+    private final String password = "TCpZUdRehwIIvYApiPOxbDjPViGuswNZ";
 
     public DatabaseService() {
         try (Connection conn = getConnection()) {
