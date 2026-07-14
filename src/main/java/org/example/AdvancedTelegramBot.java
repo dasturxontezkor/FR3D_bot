@@ -26,7 +26,7 @@ public class AdvancedTelegramBot extends TelegramLongPollingBot {
 
     // Majburiy kanallar ro‘yxati
     private final List<String> requiredChannels = List.of(
-            "@iamfredo7"
+            "@YourChanelForTest"
     );
 
     @Override
